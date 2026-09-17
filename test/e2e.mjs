@@ -103,7 +103,7 @@ check("ลูกค้าเห็นสถานะรอตรวจ", r.body.
 console.log("\n═══ 6. เข้าหลังบ้านด้วยรหัส (F7) ═══");
 r = await call("admin", "POST", "/api/auth/admin", { password: "000000" });
 check("รหัสผิดเข้าไม่ได้", r.status === 401, r.body?.error);
-r = await call("admin", "POST", "/api/auth/admin", { password: "254777" });
+r = await call("admin", "POST", "/api/auth/admin", { password: process.env.ADMIN_PASSWORD });
 check("รหัสถูกเข้าได้", r.status === 200 && r.body.role === "admin");
 
 console.log("\n═══ 7. หลังบ้านดูข้อมูลลูกค้า ═══");

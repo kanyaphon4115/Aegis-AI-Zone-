@@ -8,7 +8,9 @@ const PORT = process.env.PORT || 3000;
 // Comma-separated allow-list of deployed frontend origins, e.g.
 // FRONTEND_URL=https://aegis-orbit.onrender.com
 // Never reflect arbitrary origins when cookie credentials are enabled.
-const allowedOrigins = [process.env.FRONTEND_URL, process.env.CORS_ORIGINS]
+const localDevelopmentOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
+const allowedOrigins = [process.env.FRONTEND_URL, process.env.CORS_ORIGINS,
+  ...(process.env.NODE_ENV === "production" ? [] : localDevelopmentOrigins)]
   .filter(Boolean)
   .join(",")
   .split(",")
