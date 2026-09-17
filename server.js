@@ -81,7 +81,8 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   const missing = missingRuntimeEnv();
   console.log(`AEGIS ORBIT API running on port ${PORT}`);
   if (missing.length) console.warn(`API endpoints are disabled until these environment variables are set: ${missing.join(", ")}`);
-  console.log("Internal Mock AI mode enabled - no external AI API is used");
+  if (!process.env.ANTHROPIC_API_KEY) console.warn("Anthropic API key not configured - scan, market, and chat endpoints will return 503");
+  else console.log("Anthropic AI analysis enabled");
   console.log(`CORS credentials enabled for: ${allowedOrigins.join(", ") || "no configured origins"}`);
 });
 
