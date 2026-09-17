@@ -1,5 +1,6 @@
+import "dotenv/config";
 import express from "express";
-import apiHandler from "./api/[...path].js";
+import apiHandler, { missingRuntimeEnv } from "./api/[...path].js";
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -50,4 +51,8 @@ app.use((error, _req, res, _next) => {
   return res.status(400).json({ error: "invalid JSON request body" });
 });
 
-app.listen(port, "0.0.0.0", () => console.log(`AEGIS ORBIT API listening on ${port}`));
+app.listen(port, "0.0.0.0", () => {
+  const missing = missingRuntimeEnv();
+  console.log(`AEGIS ORBIT API running on port ${port}`);
+  if (missing.length) console.warn(`API endpoints are disabled until these environment variables are set: ${missing.join(", ")}`);
+});

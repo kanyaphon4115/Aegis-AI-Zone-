@@ -1,6 +1,6 @@
 /* ============================================================
-   AEGIS ORBIT — Backend (Vercel Serverless, ไฟล์เดียวรวมทุก endpoint)
-   Environment Variables ที่ต้องตั้งใน Vercel:
+   AEGIS ORBIT — Backend (Express/Render และ Vercel-compatible, ไฟล์เดียวรวมทุก endpoint)
+   Environment Variables ที่ต้องตั้งใน Render Web Service:
      SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY, JWT_SECRET,
      ADMIN_PHONE, ADMIN_PASSWORD
    ไม่บังคับ: INVITE_CODES (คั่นด้วย ,), ANTHROPIC_MODEL
@@ -11,7 +11,15 @@ import jwt from "jsonwebtoken";
 
 export const config = { maxDuration: 60 };
 
-const sb = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } });
+const REQUIRED_RUNTIME_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "ANTHROPIC_API_KEY", "JWT_SECRET", "ADMIN_PHONE", "ADMIN_PASSWORD"];
+export const missingRuntimeEnv = () => REQUIRED_RUNTIME_ENV.filter((name) => !process.env[name]);
+
+// Do not crash the process during module import when Render/local environment
+// variables have not been entered yet. server.js reports a clear 503 for API
+// calls until they are configured; with valid env, this is the original client.
+const sb = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
+  : null;
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const COOKIE = "ao_session";
 const FREE_SCANS = 3;
@@ -585,6 +593,8 @@ const H = {
 };
 
 export default async function handler(req, res) {
+  const missing = missingRuntimeEnv();
+  if (missing.length) return err(res, 503, `server configuration missing: ${missing.join(", ")}`);
   const path = (req.url || "").split("?")[0].replace(/\/+$/, "");
   const fn = H[`${req.method} ${path}`];
   if (!fn) return err(res, 404, "not found");
