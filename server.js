@@ -53,8 +53,18 @@ app.use((error, _req, res, _next) => {
   return res.status(400).json({ error: "invalid JSON request body" });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+const server = app.listen(PORT, "0.0.0.0", () => {
   const missing = missingRuntimeEnv();
   console.log(`AEGIS ORBIT API running on port ${PORT}`);
   if (missing.length) console.warn(`API endpoints are disabled until these environment variables are set: ${missing.join(", ")}`);
 });
+
+server.on("error", (error) => {
+  console.error("AEGIS ORBIT API failed to listen:", error);
+  process.exitCode = 1;
+});
+
+// Render sends SIGTERM when restarting or stopping a Web Service. Keep the
+// listener alive normally, then close it cleanly only for that signal.
+process.once("SIGTERM", () => server.close(() => process.exit(0)));
+process.once("SIGINT", () => server.close(() => process.exit(0)));
