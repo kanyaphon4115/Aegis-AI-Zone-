@@ -1,7 +1,7 @@
 # AEGIS ORBIT — คู่มือเอาขึ้นเว็บ .com
 
 โครงสร้าง: **Render Static Site** (หน้าเว็บ Vite) + **Render Web Service** (Express API) + **Supabase** (ฐานข้อมูล + ที่เก็บสลิป)
-ทั้งสองอย่างมีแพ็กเกจฟรีเพียงพอสำหรับเริ่มขาย ค่าใช้จ่ายจริงมีแค่ **โดเมน** (~400-600 บาท/ปี) ระบบใช้ Mock AI ภายในและไม่เรียกบริการ AI ภายนอก
+ทั้งสองอย่างมีแพ็กเกจฟรีเพียงพอสำหรับเริ่มขาย ค่าใช้จ่ายเพิ่มเติมคือ **โดเมน** (~400-600 บาท/ปี) และการใช้งาน Anthropic API สำหรับวิเคราะห์ภาพ/แชต/ข้อมูลตลาด
 
 ใช้เวลาประมาณ 30-60 นาที ทำตามลำดับนี้
 
@@ -22,9 +22,9 @@
    - **Project URL** → ใช้เป็น `SUPABASE_URL`
    - **service_role** (secret) → ใช้เป็น `SUPABASE_SERVICE_KEY` (ห้ามเอาไปวางในหน้าเว็บเด็ดขาด)
 
-## 2. Mock AI ภายใน
+## 2. Anthropic AI สำหรับวิเคราะห์กราฟ
 
-ระบบสแกนกราฟ, แชต และข้อมูลตลาดใช้ Mock AI ภายใน จึงไม่ต้องสมัครบริการ AI, ไม่ต้องตั้ง API key และไม่มีค่าใช้จ่ายจากผู้ให้บริการ AI ภายนอก ผลลัพธ์มีไว้สำหรับทดสอบระบบและไม่ใช่คำแนะนำการลงทุน
+ระบบสแกนกราฟ, แชต และข้อมูลตลาดเรียก Anthropic จาก Backend เท่านั้น เพื่อให้ API key ไม่ถูกส่งไปหน้าเว็บ สร้าง API key ที่ Anthropic Console แล้วตั้งค่า `ANTHROPIC_API_KEY` ใน Render Web Service; หากไม่มีค่านี้ endpoint ที่ต้องใช้ AI จะตอบ `503` และไม่สร้างผลลัพธ์จำลอง
 
 ## 2.5 SMS OTP (ยืนยันเบอร์ตอนสมัคร)
 
@@ -90,6 +90,8 @@ git push -u origin main
 |---|---|
 | `SUPABASE_URL` | Project URL จาก Supabase |
 | `SUPABASE_SERVICE_KEY` | service_role key จาก Supabase — เป็นความลับ |
+| `ANTHROPIC_API_KEY` | API key สำหรับวิเคราะห์ภาพกราฟ, market และ chat — เป็นความลับ |
+| `ANTHROPIC_MODEL` | ไม่บังคับ; ค่าเริ่มต้น `claude-sonnet-5` |
 | `JWT_SECRET` | ค่าสุ่มยาวอย่างน้อย 40 ตัว — เป็นความลับ |
 | `ADMIN_PHONE` / `ADMIN_PASSWORD` | เบอร์และรหัสผู้ดูแลที่กำหนดเอง — เป็นความลับ |
 | `FRONTEND_URL` | URL ของ Render Static Site เช่น `https://aegis-orbit.onrender.com` |

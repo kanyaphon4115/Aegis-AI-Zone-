@@ -1,9 +1,9 @@
 /* ============================================================
    AEGIS ORBIT — Backend (Express/Render และ Vercel-compatible, ไฟล์เดียวรวมทุก endpoint)
    Environment Variables ที่ต้องตั้งใน Render Web Service:
-     SUPABASE_URL, SUPABASE_SERVICE_KEY, JWT_SECRET,
+     SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY, JWT_SECRET,
      ADMIN_PHONE, ADMIN_PASSWORD
-   ไม่บังคับ: INVITE_CODES (คั่นด้วย ,)
+   ไม่บังคับ: INVITE_CODES (คั่นด้วย ,), ANTHROPIC_MODEL
    ============================================================ */
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
@@ -20,6 +20,8 @@ export const missingRuntimeEnv = () => REQUIRED_RUNTIME_ENV.filter((name) => !pr
 const sb = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
   ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
   : null;
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
+const hasAnthropicKey = () => !!process.env.ANTHROPIC_API_KEY;
 const COOKIE = "ao_session";
 const FREE_SCANS = 3;
 const MAX_SCAN_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -132,31 +134,25 @@ async function sendSMS(phone, text) {
 
 const otpCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
-/* ---------- Internal Mock AI (ไม่เรียกบริการ AI ภายนอก) ---------- */
-function mockAI({ system = "", messages = [] }) {
-  const text = [system, ...messages.map((m) => Array.isArray(m.content)
-    ? m.content.filter((p) => p.type === "text").map((p) => p.text).join(" ")
-    : m.content || "")].join(" ");
-
-  // Keep the same JSON contracts as the live prompts so the frontend and API
-  // endpoints continue to behave normally during local development/testing.
-  if (text.includes("อ่านภาพกราฟ")) return JSON.stringify({
-    b: "WAIT", c: 0, p: 0, e: 0, sl: 0, tp: 0, et: "wait", w: [], ps: 0.01,
-    s: "XAUUSD", tf: "", ed: "Mock AI ภายในระบบ", en: "ผลสแกนใช้สำหรับทดสอบเท่านั้น",
-    sw: "", tw: "", lr: "", st: "รอข้อมูล AI", r: ["Mock AI mode"], iv: "", rk: "ผลนี้ใช้สำหรับทดสอบเท่านั้น",
+/* ---------- Anthropic Vision / text (key stays on the server) ---------- */
+async function claude({ system, messages, max_tokens = 1600 }) {
+  if (!hasAnthropicKey()) {
+    const error = new Error("ยังไม่ได้ตั้งค่า ANTHROPIC_API_KEY");
+    error.code = "AI_NOT_CONFIGURED";
+    throw error;
+  }
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({ model: MODEL, max_tokens, system, messages }),
   });
-  if (text.includes("แนวโน้มระยะสั้น")) return JSON.stringify({
-    spot: "", change: "", dir: "flat", bias: "neutral", score: 0, up: 50,
-    horizon: "โหมด Mock", summary: "ข้อมูลนี้เป็นผลจำลองภายในระบบ", support: [], resistance: [], drivers: [],
-  });
-  if (text.includes("ปฏิทินเศรษฐกิจ")) return JSON.stringify({ e: [] });
-  if (text.includes("ข่าวทองคำล่าสุด")) return JSON.stringify({ news: [] });
-  if (text.includes("ประเมินว่าก่อนข่าว")) return JSON.stringify({
-    up: 50, edge: "none", confidence: "low", why: ["โหมดทดสอบไม่มีข้อมูลตลาดจริง"],
-    play: "ใช้เพื่อทดสอบหน้าจอและระบบเท่านั้น", risk: "ผลจำลองไม่ใช่คำแนะนำการลงทุน",
-  });
-  if (text.includes("ทีมงานของแอป AEGIS ORBIT")) return "ขณะนี้ระบบใช้ Mock AI ภายในสำหรับการทดสอบ กรุณาติดต่อทีมงานหากต้องการความช่วยเหลือ";
-  return JSON.stringify({});
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error?.message || "anthropic_error");
+  return (payload.content || []).filter((part) => part.type === "text").map((part) => part.text).join("");
 }
 /* ---------- เวลาโซนจริง (ข่าวสหรัฐอิงเวลานิวยอร์ก ปรับ DST เอง) ---------- */
 const TZ_TH = "Asia/Bangkok", TZ_ET = "America/New_York";
@@ -486,12 +482,13 @@ const H = {
     if (!image || !/^image\/(png|jpeg|webp|gif)$/.test(mime || "")) return err(res, 400, "รองรับเฉพาะไฟล์รูป PNG JPG WEBP");
     if (Buffer.byteLength(image, "base64") > MAX_SCAN_IMAGE_BYTES)
       return err(res, 413, "รูปกราฟใหญ่เกิน 5 MB กรุณาครอปหรือย่อรูปก่อนส่ง");
+    if (!hasAnthropicKey()) return err(res, 503, "ยังไม่ได้ตั้งค่า AI สำหรับวิเคราะห์ภาพ กรุณาตั้ง ANTHROPIC_API_KEY ที่ Backend");
     const unl = unlimited(a.user, a.role);
     if (!unl && (a.user.quota_left || 0) <= 0) return err(res, 402, "quota");
     const badPlan = (r) => !r || !r.b;
     let result;
     try {
-      result = repairParse(mockAI({ messages: [{ role: "user", content: [
+      result = repairParse(await claude({ messages: [{ role: "user", content: [
         { type: "image", source: { type: "base64", media_type: mime, data: image } }, { type: "text", text: P.scan(String(note || "").slice(0, 300)) }] }] }));
     } catch { return err(res, 502, "วิเคราะห์ไม่สำเร็จ ลองใหม่อีกครั้ง สิทธิ์ยังไม่ถูกตัด"); }
     if (badPlan(result)) return err(res, 502, "คำตอบไม่สมบูรณ์ ลองสแกนใหม่ สิทธิ์ยังไม่ถูกตัด");
@@ -507,12 +504,13 @@ const H = {
   /* market — Pro gating ตัดสินฝั่งเซิร์ฟเวอร์ */
   "GET /api/market/calendar": async (req, res) => {
     const a = await requireAuth(req, res); if (!a) return;
+    if (!hasAnthropicKey()) return err(res, 503, "ยังไม่ได้ตั้งค่า AI สำหรับข้อมูลตลาด");
     const pro = isPro(a.user, a.role);
     try {
       const v = await cached("calendar", 60, async () => {
         const base = buildSchedule();
         for (let i = 0; i < 2; i++) {
-          const ai = normalizeEvents(parseJSON(mockAI({ messages: [{ role: "user", content: P.calendar() }] })));
+          const ai = normalizeEvents(parseJSON(await claude({ messages: [{ role: "user", content: P.calendar() }] })));
           if (ai.length) return { events: mergeEvents(base, ai) };
         }
         return { events: base };
@@ -522,10 +520,11 @@ const H = {
   },
   "GET /api/market/news": async (req, res) => {
     const a = await requireAuth(req, res); if (!a) return;
+    if (!hasAnthropicKey()) return err(res, 503, "ยังไม่ได้ตั้งค่า AI สำหรับข้อมูลตลาด");
     const pro = isPro(a.user, a.role);
     try {
       const v = await cached("news", 20, async () => {
-        const p = parseJSON(mockAI({ messages: [{ role: "user", content: P.news() }] }));
+        const p = parseJSON(await claude({ messages: [{ role: "user", content: P.news() }] }));
         return { news: p.news?.length ? p.news : (p.__salvaged || []).filter((n) => n && n.title) };
       });
       return json(res, 200, { news: (v.news || []).map((n) => (pro ? n : { ...n, tone: null })) });
@@ -533,8 +532,9 @@ const H = {
   },
   "GET /api/market/outlook": async (req, res) => {
     const a = await requireAuth(req, res); if (!a) return;
+    if (!hasAnthropicKey()) return err(res, 503, "ยังไม่ได้ตั้งค่า AI สำหรับข้อมูลตลาด");
     try {
-      const v = await cached("outlook", 15, async () => parseJSON(mockAI({ messages: [{ role: "user", content: P.outlook() }] })));
+      const v = await cached("outlook", 15, async () => parseJSON(await claude({ messages: [{ role: "user", content: P.outlook() }] })));
       if (!isPro(a.user, a.role)) return json(res, 200, { spot: v.spot, change: v.change, dir: v.dir, locked: true });
       return json(res, 200, v);
     } catch { return err(res, 502, "ประเมินแนวโน้มไม่สำเร็จ"); }
@@ -542,19 +542,21 @@ const H = {
   "POST /api/market/edge": async (req, res) => {
     const a = await requireAuth(req, res); if (!a) return;
     if (!isPro(a.user, a.role)) return err(res, 403, "สำหรับสมาชิก Pro");
+    if (!hasAnthropicKey()) return err(res, 503, "ยังไม่ได้ตั้งค่า AI สำหรับข้อมูลตลาด");
     const { title, at } = req.body || {}; if (!title || !at) return err(res, 400, "missing event");
     const when = new Date(at).toLocaleString("th-TH", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
     try {
-      const v = await cached("edge:" + at + ":" + title, 30, async () => parseJSON(mockAI({ messages: [{ role: "user", content: P.edge(title, when) }] })));
+      const v = await cached("edge:" + at + ":" + title, 30, async () => parseJSON(await claude({ messages: [{ role: "user", content: P.edge(title, when) }] })));
       return json(res, 200, v);
     } catch { return err(res, 502, "ประเมินไม่สำเร็จ"); }
   },
 
   "POST /api/chat": async (req, res) => {
     const a = await requireAuth(req, res); if (!a) return;
+    if (!hasAnthropicKey()) return err(res, 503, "ยังไม่ได้ตั้งค่า AI สำหรับแชต");
     const msgs = (req.body?.messages || []).slice(-8).filter((m) => ["user", "assistant"].includes(m.role) && typeof m.content === "string").map((m) => ({ role: m.role, content: m.content.slice(0, 1000) }));
     if (!msgs.length || msgs[msgs.length - 1].role !== "user") return err(res, 400, "bad messages");
-    try { return json(res, 200, { reply: mockAI({ system: P.chat, messages: msgs }).trim() }); }
+    try { return json(res, 200, { reply: (await claude({ system: P.chat, messages: msgs, max_tokens: 400 })).trim() }); }
     catch { return err(res, 502, "ตอนนี้ตอบไม่ได้ ลองใหม่อีกครั้ง"); }
   },
 
