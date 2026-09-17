@@ -45,16 +45,20 @@ function readCookie(req) {
   const m = (req.headers.cookie || "").split(";").map((s) => s.trim()).find((s) => s.startsWith(COOKIE + "="));
   return m ? decodeURIComponent(m.slice(COOKIE.length + 1)) : null;
 }
+function cookieSameSite() {
+  // Render Static Sites and Web Services use different origins. `Lax` can
+  // prevent fetch(..., { credentials: "include" }) from sending ao_session
+  // between them, even after a successful login. None requires Secure, which
+  // is already enforced below. Set COOKIE_SAME_SITE=Lax only for same-origin
+  // deployments that deliberately do not need cross-origin credentials.
+  return process.env.COOKIE_SAME_SITE?.toLowerCase() === "lax" ? "Lax" : "None";
+}
 function setSession(res, payload) {
   const token = jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: "7d" });
-  // Render Static Sites and Web Services are normally same-site (*.onrender.com).
-  // Set COOKIE_SAME_SITE=None only when using truly cross-site custom domains.
-  const sameSite = process.env.COOKIE_SAME_SITE === "None" ? "None" : "Lax";
-  res.setHeader("Set-Cookie", `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=${sameSite}; Path=/; Max-Age=604800`);
+  res.setHeader("Set-Cookie", `${COOKIE}=${encodeURIComponent(token)}; HttpOnly; Secure; SameSite=${cookieSameSite()}; Path=/; Max-Age=604800`);
 }
 function clearSession(res) {
-  const sameSite = process.env.COOKIE_SAME_SITE === "None" ? "None" : "Lax";
-  res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Secure; SameSite=${sameSite}; Path=/; Max-Age=0`);
+  res.setHeader("Set-Cookie", `${COOKIE}=; HttpOnly; Secure; SameSite=${cookieSameSite()}; Path=/; Max-Age=0`);
 }
 function session(req) {
   const t = readCookie(req); if (!t) return null;

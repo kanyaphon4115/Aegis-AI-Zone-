@@ -97,7 +97,7 @@ git push -u origin main
 | `SMS_PROVIDER` | `console` ระหว่างทดสอบ หรือ `thaibulksms` / `twilio` สำหรับใช้งานจริง |
 | `THAIBULKSMS_KEY`, `THAIBULKSMS_SECRET`, `SMS_SENDER` | ใส่เมื่อใช้ ThaiBulkSMS |
 | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | ใส่เมื่อใช้ Twilio |
-| `COOKIE_SAME_SITE` | ไม่บังคับ; ตั้ง `None` เฉพาะกรณี custom domains คนละ site |
+| `COOKIE_SAME_SITE` | แนะนำ `None` สำหรับ Render Static Site + Web Service คนละ origin; ใช้ `Lax` เฉพาะ same-origin |
 
 2. สร้าง **Static Site** สำหรับ frontend: Build Command `npm install && npm run build`, Publish Directory `dist` และกำหนด `VITE_API_URL` เป็น URL ของ Web Service แบบไม่มี `/` ท้ายสุด เช่น `https://aegis-orbit-api.onrender.com` จากนั้น redeploy Static Site เพื่อให้ Vite ฝังค่านี้ตอน build
 
