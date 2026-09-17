@@ -11,7 +11,7 @@ import jwt from "jsonwebtoken";
 
 export const config = { maxDuration: 60 };
 
-const REQUIRED_RUNTIME_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "ANTHROPIC_API_KEY", "JWT_SECRET", "ADMIN_PHONE", "ADMIN_PASSWORD"];
+const REQUIRED_RUNTIME_ENV = ["SUPABASE_URL", "SUPABASE_SERVICE_KEY", "JWT_SECRET", "ADMIN_PHONE", "ADMIN_PASSWORD"];
 export const missingRuntimeEnv = () => REQUIRED_RUNTIME_ENV.filter((name) => !process.env[name]);
 
 // Do not crash the process during module import when Render/local environment
@@ -129,7 +129,34 @@ async function sendSMS(phone, text) {
 const otpCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
 /* ---------- Anthropic (เรียกจากเซิร์ฟเวอร์เท่านั้น key ไม่หลุดไปหน้าเว็บ) ---------- */
+function mockClaude({ system = "", messages = [] }) {
+  const text = [system, ...messages.map((m) => Array.isArray(m.content)
+    ? m.content.filter((p) => p.type === "text").map((p) => p.text).join(" ")
+    : m.content || "")].join(" ");
+
+  // Keep the same JSON contracts as the live prompts so the frontend and API
+  // endpoints continue to behave normally during local development/testing.
+  if (text.includes("อ่านภาพกราฟ")) return JSON.stringify({
+    b: "WAIT", c: 0, p: 0, e: 0, sl: 0, tp: 0, et: "wait", w: [], ps: 0.01,
+    s: "XAUUSD", tf: "", ed: "โหมดทดสอบยังไม่มี AI วิเคราะห์", en: "ตั้งค่า ANTHROPIC_API_KEY เพื่อวิเคราะห์จริง",
+    sw: "", tw: "", lr: "", st: "รอข้อมูล AI", r: ["Mock AI mode"], iv: "", rk: "ผลนี้ใช้สำหรับทดสอบเท่านั้น",
+  });
+  if (text.includes("แนวโน้มระยะสั้น")) return JSON.stringify({
+    spot: "", change: "", dir: "flat", bias: "neutral", score: 0, up: 50,
+    horizon: "โหมดทดสอบ", summary: "ตั้งค่า ANTHROPIC_API_KEY เพื่อรับข้อมูลตลาดจริง", support: [], resistance: [], drivers: [],
+  });
+  if (text.includes("ปฏิทินเศรษฐกิจ")) return JSON.stringify({ e: [] });
+  if (text.includes("ข่าวทองคำล่าสุด")) return JSON.stringify({ news: [] });
+  if (text.includes("ประเมินว่าก่อนข่าว")) return JSON.stringify({
+    up: 50, edge: "none", confidence: "low", why: ["โหมดทดสอบไม่มีข้อมูลตลาดจริง"],
+    play: "รอตั้งค่า ANTHROPIC_API_KEY ก่อนใช้ข้อมูลประกอบการตัดสินใจ", risk: "ผลจำลองไม่ใช่คำแนะนำการลงทุน",
+  });
+  if (text.includes("ทีมงานของแอป AEGIS ORBIT")) return "ขณะนี้ระบบอยู่ในโหมดทดสอบ กรุณาตั้งค่า ANTHROPIC_API_KEY เพื่อใช้ผู้ช่วย AI";
+  return JSON.stringify({});
+}
+
 async function claude({ system, messages, tools, max_tokens = 1600 }) {
+  if (!process.env.ANTHROPIC_API_KEY) return mockClaude({ system, messages });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
