@@ -3,12 +3,14 @@ import express from "express";
 import apiHandler, { missingRuntimeEnv } from "./api/[...path].js";
 
 const app = express();
-const port = Number(process.env.PORT) || 3000;
+const PORT = process.env.PORT || 3000;
 
 // Comma-separated allow-list of deployed frontend origins, e.g.
 // FRONTEND_URL=https://aegis-orbit.onrender.com
 // Never reflect arbitrary origins when cookie credentials are enabled.
-const allowedOrigins = (process.env.FRONTEND_URL || process.env.CORS_ORIGINS || "")
+const allowedOrigins = [process.env.FRONTEND_URL, process.env.CORS_ORIGINS]
+  .filter(Boolean)
+  .join(",")
   .split(",")
   .map((origin) => origin.trim().replace(/\/$/, ""))
   .filter(Boolean);
@@ -51,8 +53,8 @@ app.use((error, _req, res, _next) => {
   return res.status(400).json({ error: "invalid JSON request body" });
 });
 
-app.listen(port, "0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", () => {
   const missing = missingRuntimeEnv();
-  console.log(`AEGIS ORBIT API running on port ${port}`);
+  console.log(`AEGIS ORBIT API running on port ${PORT}`);
   if (missing.length) console.warn(`API endpoints are disabled until these environment variables are set: ${missing.join(", ")}`);
 });
