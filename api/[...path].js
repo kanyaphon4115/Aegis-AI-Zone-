@@ -1,9 +1,9 @@
 /* ============================================================
    AEGIS ORBIT — Backend (Express/Render และ Vercel-compatible, ไฟล์เดียวรวมทุก endpoint)
    Environment Variables ที่ต้องตั้งใน Render Web Service:
-     SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY, JWT_SECRET,
+     SUPABASE_URL, SUPABASE_SERVICE_KEY, JWT_SECRET,
      ADMIN_PHONE, ADMIN_PASSWORD
-   ไม่บังคับ: INVITE_CODES (คั่นด้วย ,), ANTHROPIC_MODEL
+   ไม่บังคับ: INVITE_CODES (คั่นด้วย ,)
    ============================================================ */
 import { createClient } from "@supabase/supabase-js";
 import bcrypt from "bcryptjs";
@@ -20,7 +20,6 @@ export const missingRuntimeEnv = () => REQUIRED_RUNTIME_ENV.filter((name) => !pr
 const sb = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
   ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, { auth: { persistSession: false } })
   : null;
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-5";
 const COOKIE = "ao_session";
 const FREE_SCANS = 3;
 const PLANS = {
@@ -128,8 +127,8 @@ async function sendSMS(phone, text) {
 
 const otpCode = () => String(Math.floor(100000 + Math.random() * 900000));
 
-/* ---------- Anthropic (เรียกจากเซิร์ฟเวอร์เท่านั้น key ไม่หลุดไปหน้าเว็บ) ---------- */
-function mockClaude({ system = "", messages = [] }) {
+/* ---------- Internal Mock AI (ไม่เรียกบริการ AI ภายนอก) ---------- */
+function mockAI({ system = "", messages = [] }) {
   const text = [system, ...messages.map((m) => Array.isArray(m.content)
     ? m.content.filter((p) => p.type === "text").map((p) => p.text).join(" ")
     : m.content || "")].join(" ");
@@ -138,33 +137,21 @@ function mockClaude({ system = "", messages = [] }) {
   // endpoints continue to behave normally during local development/testing.
   if (text.includes("อ่านภาพกราฟ")) return JSON.stringify({
     b: "WAIT", c: 0, p: 0, e: 0, sl: 0, tp: 0, et: "wait", w: [], ps: 0.01,
-    s: "XAUUSD", tf: "", ed: "โหมดทดสอบยังไม่มี AI วิเคราะห์", en: "ตั้งค่า ANTHROPIC_API_KEY เพื่อวิเคราะห์จริง",
+    s: "XAUUSD", tf: "", ed: "Mock AI ภายในระบบ", en: "ผลสแกนใช้สำหรับทดสอบเท่านั้น",
     sw: "", tw: "", lr: "", st: "รอข้อมูล AI", r: ["Mock AI mode"], iv: "", rk: "ผลนี้ใช้สำหรับทดสอบเท่านั้น",
   });
   if (text.includes("แนวโน้มระยะสั้น")) return JSON.stringify({
     spot: "", change: "", dir: "flat", bias: "neutral", score: 0, up: 50,
-    horizon: "โหมดทดสอบ", summary: "ตั้งค่า ANTHROPIC_API_KEY เพื่อรับข้อมูลตลาดจริง", support: [], resistance: [], drivers: [],
+    horizon: "โหมด Mock", summary: "ข้อมูลนี้เป็นผลจำลองภายในระบบ", support: [], resistance: [], drivers: [],
   });
   if (text.includes("ปฏิทินเศรษฐกิจ")) return JSON.stringify({ e: [] });
   if (text.includes("ข่าวทองคำล่าสุด")) return JSON.stringify({ news: [] });
   if (text.includes("ประเมินว่าก่อนข่าว")) return JSON.stringify({
     up: 50, edge: "none", confidence: "low", why: ["โหมดทดสอบไม่มีข้อมูลตลาดจริง"],
-    play: "รอตั้งค่า ANTHROPIC_API_KEY ก่อนใช้ข้อมูลประกอบการตัดสินใจ", risk: "ผลจำลองไม่ใช่คำแนะนำการลงทุน",
+    play: "ใช้เพื่อทดสอบหน้าจอและระบบเท่านั้น", risk: "ผลจำลองไม่ใช่คำแนะนำการลงทุน",
   });
-  if (text.includes("ทีมงานของแอป AEGIS ORBIT")) return "ขณะนี้ระบบอยู่ในโหมดทดสอบ กรุณาตั้งค่า ANTHROPIC_API_KEY เพื่อใช้ผู้ช่วย AI";
+  if (text.includes("ทีมงานของแอป AEGIS ORBIT")) return "ขณะนี้ระบบใช้ Mock AI ภายในสำหรับการทดสอบ กรุณาติดต่อทีมงานหากต้องการความช่วยเหลือ";
   return JSON.stringify({});
-}
-
-async function claude({ system, messages, tools, max_tokens = 1600 }) {
-  if (!process.env.ANTHROPIC_API_KEY) return mockClaude({ system, messages });
-  const r = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: MODEL, max_tokens, system, messages, ...(tools ? { tools } : {}) }),
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error?.message || "anthropic_error");
-  return (j.content || []).filter((c) => c.type === "text").map((c) => c.text).join("");
 }
 /* ---------- เวลาโซนจริง (ข่าวสหรัฐอิงเวลานิวยอร์ก ปรับ DST เอง) ---------- */
 const TZ_TH = "Asia/Bangkok", TZ_ET = "America/New_York";
@@ -226,7 +213,6 @@ function mergeEvents(base, extra) {
 }
 
 
-const WEB = [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }];
 /* กู้ JSON ที่ถูกตัดกลางคัน โดยย้อนกลับไปคีย์ล่าสุดที่จบสมบูรณ์แล้วปิดวงเล็บให้ */
 function repairParse(txt) {
   const start = txt.indexOf("{");
@@ -493,7 +479,7 @@ const H = {
     const badPlan = (r) => !r || !r.b;
     let result;
     try {
-      result = repairParse(await claude({ max_tokens: 1400, messages: [{ role: "user", content: [
+      result = repairParse(mockAI({ messages: [{ role: "user", content: [
         { type: "image", source: { type: "base64", media_type: mime, data: image } }, { type: "text", text: P.scan(String(note || "").slice(0, 300)) }] }] }));
     } catch { return err(res, 502, "วิเคราะห์ไม่สำเร็จ ลองใหม่อีกครั้ง สิทธิ์ยังไม่ถูกตัด"); }
     if (badPlan(result)) return err(res, 502, "คำตอบไม่สมบูรณ์ ลองสแกนใหม่ สิทธิ์ยังไม่ถูกตัด");
@@ -514,7 +500,7 @@ const H = {
       const v = await cached("calendar", 60, async () => {
         const base = buildSchedule();
         for (let i = 0; i < 2; i++) {
-          const ai = normalizeEvents(parseJSON(await claude({ messages: [{ role: "user", content: P.calendar() }], tools: WEB })));
+          const ai = normalizeEvents(parseJSON(mockAI({ messages: [{ role: "user", content: P.calendar() }] })));
           if (ai.length) return { events: mergeEvents(base, ai) };
         }
         return { events: base };
@@ -527,7 +513,7 @@ const H = {
     const pro = isPro(a.user, a.role);
     try {
       const v = await cached("news", 20, async () => {
-        const p = parseJSON(await claude({ messages: [{ role: "user", content: P.news() }], tools: WEB }));
+        const p = parseJSON(mockAI({ messages: [{ role: "user", content: P.news() }] }));
         return { news: p.news?.length ? p.news : (p.__salvaged || []).filter((n) => n && n.title) };
       });
       return json(res, 200, { news: (v.news || []).map((n) => (pro ? n : { ...n, tone: null })) });
@@ -536,7 +522,7 @@ const H = {
   "GET /api/market/outlook": async (req, res) => {
     const a = await requireAuth(req, res); if (!a) return;
     try {
-      const v = await cached("outlook", 15, async () => parseJSON(await claude({ messages: [{ role: "user", content: P.outlook() }], tools: WEB })));
+      const v = await cached("outlook", 15, async () => parseJSON(mockAI({ messages: [{ role: "user", content: P.outlook() }] })));
       if (!isPro(a.user, a.role)) return json(res, 200, { spot: v.spot, change: v.change, dir: v.dir, locked: true });
       return json(res, 200, v);
     } catch { return err(res, 502, "ประเมินแนวโน้มไม่สำเร็จ"); }
@@ -547,7 +533,7 @@ const H = {
     const { title, at } = req.body || {}; if (!title || !at) return err(res, 400, "missing event");
     const when = new Date(at).toLocaleString("th-TH", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" });
     try {
-      const v = await cached("edge:" + at + ":" + title, 30, async () => parseJSON(await claude({ messages: [{ role: "user", content: P.edge(title, when) }], tools: WEB })));
+      const v = await cached("edge:" + at + ":" + title, 30, async () => parseJSON(mockAI({ messages: [{ role: "user", content: P.edge(title, when) }] })));
       return json(res, 200, v);
     } catch { return err(res, 502, "ประเมินไม่สำเร็จ"); }
   },
@@ -556,7 +542,7 @@ const H = {
     const a = await requireAuth(req, res); if (!a) return;
     const msgs = (req.body?.messages || []).slice(-8).filter((m) => ["user", "assistant"].includes(m.role) && typeof m.content === "string").map((m) => ({ role: m.role, content: m.content.slice(0, 1000) }));
     if (!msgs.length || msgs[msgs.length - 1].role !== "user") return err(res, 400, "bad messages");
-    try { return json(res, 200, { reply: (await claude({ system: P.chat, messages: msgs, max_tokens: 400 })).trim() }); }
+    try { return json(res, 200, { reply: mockAI({ system: P.chat, messages: msgs }).trim() }); }
     catch { return err(res, 502, "ตอนนี้ตอบไม่ได้ ลองใหม่อีกครั้ง"); }
   },
 

@@ -1,7 +1,7 @@
 # AEGIS ORBIT — คู่มือเอาขึ้นเว็บ .com
 
 โครงสร้าง: **Render Static Site** (หน้าเว็บ Vite) + **Render Web Service** (Express API) + **Supabase** (ฐานข้อมูล + ที่เก็บสลิป)
-ทั้งสองอย่างมีแพ็กเกจฟรีเพียงพอสำหรับเริ่มขาย ค่าใช้จ่ายจริงมีแค่ **โดเมน** (~400-600 บาท/ปี) และ **ค่า AI ตามการใช้งาน**
+ทั้งสองอย่างมีแพ็กเกจฟรีเพียงพอสำหรับเริ่มขาย ค่าใช้จ่ายจริงมีแค่ **โดเมน** (~400-600 บาท/ปี) ระบบใช้ Mock AI ภายในและไม่เรียกบริการ AI ภายนอก
 
 ใช้เวลาประมาณ 30-60 นาที ทำตามลำดับนี้
 
@@ -22,12 +22,9 @@
    - **Project URL** → ใช้เป็น `SUPABASE_URL`
    - **service_role** (secret) → ใช้เป็น `SUPABASE_SERVICE_KEY` (ห้ามเอาไปวางในหน้าเว็บเด็ดขาด)
 
-## 2. Anthropic — คีย์ AI
+## 2. Mock AI ภายใน
 
-1. ไป https://console.anthropic.com → **API Keys** → **Create Key** → จดเป็น `ANTHROPIC_API_KEY`
-2. เติมเครดิตใน **Billing** (เริ่ม $5-20 พอทดสอบ) และตั้ง **spend limit** กันบานปลาย
-
-ประมาณค่าใช้จ่าย: สแกนกราฟ 1 ครั้ง ≈ 0.3-0.6 บาท · ข้อมูลตลาดถูก cache ฝั่งเซิร์ฟเวอร์ (แนวโน้ม 15 นาที, ปฏิทิน 60 นาที, ข่าว 20 นาที) ผู้ใช้ 100 คนเปิดพร้อมกันจ่ายรอบเดียว
+ระบบสแกนกราฟ, แชต และข้อมูลตลาดใช้ Mock AI ภายใน จึงไม่ต้องสมัครบริการ AI, ไม่ต้องตั้ง API key และไม่มีค่าใช้จ่ายจากผู้ให้บริการ AI ภายนอก ผลลัพธ์มีไว้สำหรับทดสอบระบบและไม่ใช่คำแนะนำการลงทุน
 
 ## 2.5 SMS OTP (ยืนยันเบอร์ตอนสมัคร)
 
@@ -93,7 +90,6 @@ git push -u origin main
 |---|---|
 | `SUPABASE_URL` | Project URL จาก Supabase |
 | `SUPABASE_SERVICE_KEY` | service_role key จาก Supabase — เป็นความลับ |
-| `ANTHROPIC_API_KEY` | Anthropic API key — เป็นความลับ |
 | `JWT_SECRET` | ค่าสุ่มยาวอย่างน้อย 40 ตัว — เป็นความลับ |
 | `ADMIN_PHONE` / `ADMIN_PASSWORD` | เบอร์และรหัสผู้ดูแลที่กำหนดเอง — เป็นความลับ |
 | `FRONTEND_URL` | URL ของ Render Static Site เช่น `https://aegis-orbit.onrender.com` |
@@ -101,7 +97,7 @@ git push -u origin main
 | `SMS_PROVIDER` | `console` ระหว่างทดสอบ หรือ `thaibulksms` / `twilio` สำหรับใช้งานจริง |
 | `THAIBULKSMS_KEY`, `THAIBULKSMS_SECRET`, `SMS_SENDER` | ใส่เมื่อใช้ ThaiBulkSMS |
 | `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | ใส่เมื่อใช้ Twilio |
-| `ANTHROPIC_MODEL`, `COOKIE_SAME_SITE` | ไม่บังคับ; `COOKIE_SAME_SITE=None` เฉพาะกรณี custom domains คนละ site |
+| `COOKIE_SAME_SITE` | ไม่บังคับ; ตั้ง `None` เฉพาะกรณี custom domains คนละ site |
 
 2. สร้าง **Static Site** สำหรับ frontend: Build Command `npm install && npm run build`, Publish Directory `dist` และกำหนด `VITE_API_URL` เป็น URL ของ Web Service แบบไม่มี `/` ท้ายสุด เช่น `https://aegis-orbit-api.onrender.com` จากนั้น redeploy Static Site เพื่อให้ Vite ฝังค่านี้ตอน build
 

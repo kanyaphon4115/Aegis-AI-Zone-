@@ -81,7 +81,7 @@ check("เข้าสู่ระบบสำเร็จ", r.status === 200 &&
 console.log("\n═══ 3. สแกนและโควตา ═══");
 for (let i = 1; i <= 3; i++) {
   r = await call("cust", "POST", "/api/scan", { image: IMG_B64, mime: "image/png", note: "" });
-  check(`สแกนครั้งที่ ${i}`, r.status === 200 && r.body.result.b === "BUY", `เหลือ ${r.body?.left}`);
+  check(`สแกนครั้งที่ ${i}`, r.status === 200 && r.body.result.b === "WAIT", `เหลือ ${r.body?.left}`);
 }
 r = await call("cust", "POST", "/api/scan", { image: IMG_B64, mime: "image/png" });
 check("ครั้งที่ 4 ถูกกั้น (โควตาหมด)", r.status === 402, r.body?.error);
