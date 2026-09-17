@@ -42,9 +42,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Scan and payment endpoints accept base64 images. 12 MB allows their JSON
-// envelope while the payment handler continues to enforce its 2.5 MB file cap.
-app.use(express.json({ limit: "12mb" }));
+// Scan and payment endpoints accept base64 images. 16 MB leaves room for the
+// JSON envelope; the scan handler and payment handler enforce tighter image
+// limits after parsing.
+app.use(express.json({ limit: "16mb" }));
 
 app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
 

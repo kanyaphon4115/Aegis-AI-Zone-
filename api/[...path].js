@@ -22,6 +22,7 @@ const sb = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY
   : null;
 const COOKIE = "ao_session";
 const FREE_SCANS = 3;
+const MAX_SCAN_IMAGE_BYTES = 5 * 1024 * 1024;
 const PLANS = {
   day:   { label: "Starter", name: "รายวัน",  price: 500,   days: 1,   quota: 30 },
   month: { label: "Pro",     name: "รายเดือน", price: 2490,  days: 30,  quota: null },
@@ -478,6 +479,8 @@ const H = {
     const a = await requireAuth(req, res); if (!a) return;
     const { image, mime, note } = req.body || {};
     if (!image || !/^image\/(png|jpeg|webp|gif)$/.test(mime || "")) return err(res, 400, "รองรับเฉพาะไฟล์รูป PNG JPG WEBP");
+    if (Buffer.byteLength(image, "base64") > MAX_SCAN_IMAGE_BYTES)
+      return err(res, 413, "รูปกราฟใหญ่เกิน 5 MB กรุณาครอปหรือย่อรูปก่อนส่ง");
     const unl = unlimited(a.user, a.role);
     if (!unl && (a.user.quota_left || 0) <= 0) return err(res, 402, "quota");
     const badPlan = (r) => !r || !r.b;

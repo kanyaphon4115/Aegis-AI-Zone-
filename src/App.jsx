@@ -18,34 +18,82 @@ const PRO_PLANS = ["month", "five", "year"];
 const RENDER_API_URL = "https://aegis-ai-zone.onrender.com";
 const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.PROD ? RENDER_API_URL : "")).replace(/\/$/, "");
 if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) console.warn("VITE_API_URL is not configured; using the Render API default.");
-async function api(path, body, method) {
-  const r = await fetch(`${API_URL}${path}`, { method: method || (body ? "POST" : "GET"), credentials: "include",
-    headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) { const e = new Error(j.error || "ผิดพลาด ลองใหม่อีกครั้ง"); e.status = r.status; throw e; }
-  return j;
+async function api(path, body, method, { timeoutMs = 60000 } = {}) {
+  const controller = typeof AbortController === "undefined" ? null : new AbortController();
+  const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const r = await fetch(`${API_URL}${path}`, { method: method || (body ? "POST" : "GET"), credentials: "include",
+      headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined, signal: controller?.signal });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { const e = new Error(j.error || "ผิดพลาด ลองใหม่อีกครั้ง"); e.status = r.status; throw e; }
+    return j;
+  } catch (error) {
+    if (error?.name === "AbortError") { const e = new Error("ส่งภาพใช้เวลานานเกินไป กรุณาลองใหม่ด้วยภาพที่เล็กลง"); e.code = "timeout"; throw e; }
+    throw error;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 const isThaiMobile = (p) => /^0[689]\d{8}$/.test(p);
 const pwStrength = (pw) => (pw.length >= 8 && /\d/.test(pw) && /[a-zA-Z]/.test(pw) ? "ok" : pw.length >= 6 ? "weak" : "short");
 const planActive = (u) => !!(u && u.plan && u.expires && new Date(u.expires).getTime() > Date.now());
 const newOrderId = () => "AO" + Date.now().toString(36).toUpperCase().slice(-5) + Math.random().toString(36).slice(2, 5).toUpperCase();
 
-/* ย่อรูปสลิปก่อนเก็บ เพื่อไม่ให้เกินขนาดที่ระบบเก็บได้ */
+/* ย่อรูปก่อนเก็บ/ส่ง เพื่อไม่ให้ภาพจากกล้องมือถือเกิน body limit */
 function compressImage(file, max = 900, quality = 0.72) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
-      const scale = Math.min(1, max / Math.max(img.width, img.height));
-      const c = document.createElement("canvas");
-      c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-      URL.revokeObjectURL(url);
-      resolve(c.toDataURL("image/jpeg", quality));
+      try {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement("canvas");
+        c.width = Math.max(1, Math.round(img.width * scale)); c.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = c.getContext("2d");
+        if (!ctx) throw new Error("ไม่สามารถเตรียมภาพได้");
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL("image/jpeg", quality));
+      } catch (error) { reject(error); }
+      finally { URL.revokeObjectURL(url); }
     };
-    img.onerror = reject;
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("เบราว์เซอร์อ่านไฟล์ภาพนี้ไม่ได้")); };
     img.src = url;
   });
+}
+
+const SCAN_ACCEPT = "image/jpeg,image/png,image/webp,image/heic,image/heif";
+const MAX_SCAN_SOURCE_BYTES = 15 * 1024 * 1024;
+const MAX_SCAN_UPLOAD_BYTES = 5 * 1024 * 1024;
+const scanMimeFromFile = (file) => {
+  const type = (file.type || "").toLowerCase();
+  if (type) return type === "image/jpg" ? "image/jpeg" : type;
+  const ext = (file.name || "").split(".").pop()?.toLowerCase();
+  return ({ jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heif" })[ext] || "";
+};
+async function prepareScanImage(file) {
+  const sourceMime = scanMimeFromFile(file);
+  if (!file || !["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"].includes(sourceMime))
+    throw new Error("รองรับ JPG, PNG, WEBP และ HEIC/HEIF จาก iPhone");
+  if (file.size > MAX_SCAN_SOURCE_BYTES) throw new Error("รูปต้นฉบับใหญ่เกิน 15 MB กรุณาเลือกรูปที่เล็กลง");
+
+  // Canvas converts a supported HEIC/HEIF image to JPEG before it reaches the
+  // API. If a browser cannot decode HEIC, it fails here with a useful message
+  // instead of sending an unsupported MIME type to the backend.
+  let url;
+  try { url = await compressImage(file, 1600, 0.82); }
+  catch {
+    throw new Error(sourceMime === "image/heic" || sourceMime === "image/heif"
+      ? "เครื่องนี้ยังอ่าน HEIC/HEIF ไม่ได้ กรุณาเลือก ‘Most Compatible/JPEG’ หรือแปลงเป็น JPG ก่อน"
+      : "ไม่สามารถอ่านไฟล์รูปนี้ได้ กรุณาลองรูป JPG, PNG หรือ WEBP");
+  }
+  let b64 = url.split(",")[1] || "";
+  if (Math.ceil(b64.length * 0.75) > MAX_SCAN_UPLOAD_BYTES) {
+    url = await compressImage(file, 1200, 0.72);
+    b64 = url.split(",")[1] || "";
+  }
+  if (!b64 || Math.ceil(b64.length * 0.75) > MAX_SCAN_UPLOAD_BYTES)
+    throw new Error("รูปยังใหญ่เกินไปหลังย่อ กรุณาครอปเฉพาะกราฟแล้วลองใหม่");
+  return { url, b64, mime: "image/jpeg" };
 }
 
 
@@ -1517,26 +1565,34 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
   const [prog, setProg] = useState(0);
   const [res, setRes] = useState(null);
   const [note, setNote] = useState("");
-  const fileRef = useRef(null); const timers = useRef([]);
+  const [scanError, setScanError] = useState("");
+  const fileRef = useRef(null); const cameraRef = useRef(null); const timers = useRef([]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
 
-  const pick = (e) => {
+  const pick = async (e) => {
     const f = e.target.files?.[0]; if (!f) return;
-    if (!/^image\//.test(f.type)) return say("รองรับเฉพาะไฟล์รูป");
-    const r = new FileReader();
-    r.onload = () => { setImg({ url: r.result, b64: String(r.result).split(",")[1], mime: f.type === "image/jpg" ? "image/jpeg" : f.type }); setPhase("idle"); setRes(null); };
-    r.readAsDataURL(f);
+    // Reset the input immediately so selecting the same photo again works on
+    // iOS Safari as well as Android Chrome.
+    e.target.value = "";
+    setScanError("");
+    say("กำลังเตรียมภาพสำหรับส่ง...");
+    try {
+      setImg(await prepareScanImage(f));
+      setPhase("idle"); setRes(null);
+    } catch (error) {
+      setImg(null); setPhase("idle"); setScanError(error.message); say(error.message);
+    }
   };
 
   const run = async () => {
     if (!img) return say("เลือกรูปกราฟก่อน");
     if (!unlimited && left <= 0) return onQuota();
-    setPhase("scanning"); setStep(0); setProg(0); setRes(null);
+    setPhase("scanning"); setStep(0); setProg(0); setRes(null); setScanError("");
     timers.current.forEach(clearTimeout); timers.current = [];
     SCAN_STEPS.forEach((_, i) => timers.current.push(setTimeout(() => { setStep(i + 1); setProg(Math.round(((i + 1) / SCAN_STEPS.length) * 88)); }, 700 * i + 400)));
 
     try {
-      const r = await api("/api/scan", { image: img.b64, mime: img.mime, note });
+      const r = await api("/api/scan", { image: img.b64, mime: img.mime, note }, undefined, { timeoutMs: 90000 });
       const parsed = normalizePlan(expandPlan(r.result || {}));
       timers.current.push(setTimeout(() => {
         setProg(100); setRes(parsed); setPhase("done");
@@ -1546,6 +1602,7 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
     } catch (e) {
       timers.current.forEach(clearTimeout);
       if (e.status === 402) { setPhase("idle"); setProg(0); onQuota(); return; }
+      setScanError(e.message || "การเชื่อมต่อขาดตอนระหว่างส่งภาพ");
       setPhase("error"); setProg(0);
     }
   };
@@ -1610,7 +1667,8 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
           </div>
         )}
       </div>
-      <input ref={fileRef} type="file" accept="image/*" onChange={pick} style={{ display: "none" }} />
+      <input ref={fileRef} type="file" accept={SCAN_ACCEPT} onChange={pick} style={{ display: "none" }} />
+      <input ref={cameraRef} type="file" accept={SCAN_ACCEPT} capture="environment" onChange={pick} style={{ display: "none" }} />
 
       {phase === "scanning" && (
         <>
@@ -1636,7 +1694,8 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
             </div>
           )}
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-            <button className="btn ghost" style={{ width: "100%" }} onClick={() => fileRef.current?.click()}>{img ? "เปลี่ยนภาพ" : "เลือกภาพ"}</button>
+            <button className="btn ghost" style={{ flex: 1 }} onClick={() => fileRef.current?.click()}>{img ? "เปลี่ยนภาพ" : "เลือกภาพ"}</button>
+            <button className="btn ghost" style={{ flex: 1 }} onClick={() => cameraRef.current?.click()}>ถ่ายภาพ</button>
             <button className="btn" onClick={run} disabled={!img}>วิเคราะห์</button>
           </div>
           <div className="card tight" style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}>
@@ -1649,7 +1708,8 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
       {phase === "error" && (
         <div className="card" style={{ marginTop: 16 }}>
           <h2 style={{ color: "var(--red)" }}>วิเคราะห์ไม่สำเร็จ</h2>
-          <p style={{ marginBottom: 16 }}>การเชื่อมต่อขาดตอนระหว่างส่งภาพ ระบบคืนสิทธิ์ให้แล้ว</p>
+          <p style={{ marginBottom: 7 }}>{scanError || "การเชื่อมต่อขาดตอนระหว่างส่งภาพ"}</p>
+          <p className="dim" style={{ marginBottom: 16 }}>ระบบจะไม่หักสิทธิ์เมื่อส่งภาพหรือวิเคราะห์ไม่สำเร็จ</p>
           <button className="btn" onClick={() => setPhase("idle")}>ลองใหม่</button>
         </div>
       )}
