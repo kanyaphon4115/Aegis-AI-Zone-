@@ -396,8 +396,8 @@ function useFetch(path, eager = true) {
   useEffect(() => { if (eager) load(); }, [load, eager]);
   return { data, state, reload: load, load };
 }
-const useOutlook = () => useFetch("/api/market/outlook");
-const useCalendar = () => useFetch("/api/market/calendar");
+const useOutlook = (eager) => useFetch("/api/market/outlook", eager);
+const useCalendar = (eager) => useFetch("/api/market/calendar", eager);
 const useNews = () => useFetch("/api/market/news", false);
 
 /* ============================ APP ============================ */
@@ -413,8 +413,12 @@ export default function AegisOrbit() {
   const [marketView, setMarketView] = useState("outlook");
   const [pendingPay, setPendingPay] = useState(null);
   const gate = useAdminGate();
-  const outlook = useOutlook();
-  const calendar = useCalendar();
+  // Market endpoints intentionally require an authenticated session. Do not
+  // issue them while the login screen is mounted, which avoids expected 401s
+  // being reported as failed resources in the browser console.
+  const canLoadMarket = screen === "app" && !!user?.phone;
+  const outlook = useOutlook(canLoadMarket);
+  const calendar = useCalendar(canLoadMarket);
   const newsFeed = useNews();
 
   const say = useCallback((t) => { setToast(t); setTimeout(() => setToast(null), 2400); }, []);
