@@ -8,8 +8,12 @@ const PORT = process.env.PORT || 3000;
 // Comma-separated allow-list of deployed frontend origins, e.g.
 // FRONTEND_URL=https://aegis-orbit.onrender.com
 // Never reflect arbitrary origins when cookie credentials are enabled.
+// This is the current Render Static Site URL. FRONTEND_URL remains the
+// deployment setting to use when a custom domain or replacement Static Site
+// is used; it is intentionally a public URL, never a credential.
+const defaultRenderFrontendOrigin = "https://aegis-ai-zone-1.onrender.com";
 const localDevelopmentOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
-const allowedOrigins = [process.env.FRONTEND_URL, process.env.CORS_ORIGINS,
+const allowedOrigins = [process.env.FRONTEND_URL, process.env.CORS_ORIGINS, defaultRenderFrontendOrigin,
   ...(process.env.NODE_ENV === "production" ? [] : localDevelopmentOrigins)]
   .filter(Boolean)
   .join(",")
@@ -60,6 +64,7 @@ const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`AEGIS ORBIT API running on port ${PORT}`);
   if (missing.length) console.warn(`API endpoints are disabled until these environment variables are set: ${missing.join(", ")}`);
   console.log("Internal Mock AI mode enabled - no external AI API is used");
+  console.log(`CORS credentials enabled for: ${allowedOrigins.join(", ") || "no configured origins"}`);
 });
 
 server.on("error", (error) => {
