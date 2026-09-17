@@ -1,9 +1,15 @@
 import "dotenv/config";
 import express from "express";
+import multer from "multer";
 import apiHandler, { missingRuntimeEnv } from "./api/[...path].js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const MAX_SCAN_UPLOAD_BYTES = 5 * 1024 * 1024;
+const scanUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_SCAN_UPLOAD_BYTES, files: 1 },
+});
 
 // Comma-separated allow-list of deployed frontend origins, e.g.
 // FRONTEND_URL=https://aegis-orbit.onrender.com
@@ -49,6 +55,12 @@ app.use(express.json({ limit: "16mb" }));
 
 app.get("/health", (_req, res) => res.status(200).json({ ok: true }));
 
+// Mobile browsers upload the prepared chart as a Blob. Keep this route before
+// the catch-all handler while preserving the original handler and its routes.
+app.post("/api/scan", scanUpload.single("image"), (req, res, next) => {
+  apiHandler(req, res).catch(next);
+});
+
 // Do not mount this router at /api: the preserved Vercel handler reads req.url
 // and expects the complete /api/... pathname.
 app.use((req, res, next) => {
@@ -58,6 +70,8 @@ app.use((req, res, next) => {
 
 app.use((_req, res) => res.status(404).json({ error: "not found" }));
 app.use((error, _req, res, _next) => {
+  if (error?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "รูปกราฟใหญ่เกิน 5 MB กรุณาครอปหรือย่อรูปก่อนส่ง" });
+  if (error instanceof multer.MulterError) return res.status(400).json({ error: "อัปโหลดรูปกราฟไม่ถูกต้อง" });
   if (error?.type === "entity.too.large") return res.status(413).json({ error: "request body too large" });
   console.error(error);
   return res.status(400).json({ error: "invalid JSON request body" });

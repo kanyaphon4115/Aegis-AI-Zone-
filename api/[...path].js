@@ -477,7 +477,12 @@ const H = {
   /* scan — โควตาตัดฝั่งเซิร์ฟเวอร์ แก้จากหน้าเว็บไม่ได้ */
   "POST /api/scan": async (req, res) => {
     const a = await requireAuth(req, res); if (!a) return;
-    const { image, mime, note } = req.body || {};
+    const upload = req.file;
+    const { image: bodyImage, mime: bodyMime, note } = req.body || {};
+    // Render/Express receives current mobile uploads as multipart/form-data.
+    // JSON base64 remains supported for existing desktop clients.
+    const image = upload ? upload.buffer.toString("base64") : bodyImage;
+    const mime = upload?.mimetype || bodyMime;
     if (!image || !/^image\/(png|jpeg|webp|gif)$/.test(mime || "")) return err(res, 400, "รองรับเฉพาะไฟล์รูป PNG JPG WEBP");
     if (Buffer.byteLength(image, "base64") > MAX_SCAN_IMAGE_BYTES)
       return err(res, 413, "รูปกราฟใหญ่เกิน 5 MB กรุณาครอปหรือย่อรูปก่อนส่ง");

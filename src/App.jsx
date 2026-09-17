@@ -21,9 +21,12 @@ if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) console.warn("VITE_AP
 async function api(path, body, method, { timeoutMs = 60000 } = {}) {
   const controller = typeof AbortController === "undefined" ? null : new AbortController();
   const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
   try {
     const r = await fetch(`${API_URL}${path}`, { method: method || (body ? "POST" : "GET"), credentials: "include",
-      headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined, signal: controller?.signal });
+      // Do not set multipart Content-Type: the browser must add its boundary.
+      headers: isFormData ? undefined : { "Content-Type": "application/json" },
+      body: !body ? undefined : isFormData ? body : JSON.stringify(body), signal: controller?.signal });
     const j = await r.json().catch(() => ({}));
     if (!r.ok) { const e = new Error(j.error || "ผิดพลาด ลองใหม่อีกครั้ง"); e.status = r.status; throw e; }
     return j;
@@ -40,7 +43,25 @@ const planActive = (u) => !!(u && u.plan && u.expires && new Date(u.expires).get
 const newOrderId = () => "AO" + Date.now().toString(36).toUpperCase().slice(-5) + Math.random().toString(36).slice(2, 5).toUpperCase();
 
 /* ย่อรูปก่อนเก็บ/ส่ง เพื่อไม่ให้ภาพจากกล้องมือถือเกิน body limit */
-function compressImage(file, max = 900, quality = 0.72) {
+async function compressImage(file, max = 900, quality = 0.72) {
+  // Chrome and recent Safari honour the image's EXIF orientation here. This
+  // prevents portrait camera charts from reaching the analysis sideways.
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
+      const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
+      const c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(bitmap.width * scale)); c.height = Math.max(1, Math.round(bitmap.height * scale));
+      const ctx = c.getContext("2d");
+      if (!ctx) throw new Error("ไม่สามารถเตรียมภาพได้");
+      ctx.drawImage(bitmap, 0, 0, c.width, c.height);
+      bitmap.close?.();
+      return c.toDataURL("image/jpeg", quality);
+    } catch {
+      // iPhone Safari versions without createImageBitmap (or HEIC decoding)
+      // use the Image fallback below.
+    }
+  }
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -59,6 +80,11 @@ function compressImage(file, max = 900, quality = 0.72) {
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("เบราว์เซอร์อ่านไฟล์ภาพนี้ไม่ได้")); };
     img.src = url;
   });
+}
+
+async function dataUrlToBlob(dataUrl) {
+  const response = await fetch(dataUrl);
+  return response.blob();
 }
 
 const SCAN_ACCEPT = "image/jpeg,image/png,image/webp,image/heic,image/heif";
@@ -86,14 +112,14 @@ async function prepareScanImage(file) {
       ? "เครื่องนี้ยังอ่าน HEIC/HEIF ไม่ได้ กรุณาเลือก ‘Most Compatible/JPEG’ หรือแปลงเป็น JPG ก่อน"
       : "ไม่สามารถอ่านไฟล์รูปนี้ได้ กรุณาลองรูป JPG, PNG หรือ WEBP");
   }
-  let b64 = url.split(",")[1] || "";
-  if (Math.ceil(b64.length * 0.75) > MAX_SCAN_UPLOAD_BYTES) {
+  let blob = await dataUrlToBlob(url);
+  if (blob.size > MAX_SCAN_UPLOAD_BYTES) {
     url = await compressImage(file, 1200, 0.72);
-    b64 = url.split(",")[1] || "";
+    blob = await dataUrlToBlob(url);
   }
-  if (!b64 || Math.ceil(b64.length * 0.75) > MAX_SCAN_UPLOAD_BYTES)
+  if (!blob.size || blob.size > MAX_SCAN_UPLOAD_BYTES)
     throw new Error("รูปยังใหญ่เกินไปหลังย่อ กรุณาครอปเฉพาะกราฟแล้วลองใหม่");
-  return { url, b64, mime: "image/jpeg" };
+  return { url, blob, mime: "image/jpeg" };
 }
 
 
@@ -1592,7 +1618,10 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
     SCAN_STEPS.forEach((_, i) => timers.current.push(setTimeout(() => { setStep(i + 1); setProg(Math.round(((i + 1) / SCAN_STEPS.length) * 88)); }, 700 * i + 400)));
 
     try {
-      const r = await api("/api/scan", { image: img.b64, mime: img.mime, note }, undefined, { timeoutMs: 90000 });
+      const form = new FormData();
+      form.append("image", img.blob, "chart.jpg");
+      form.append("note", note.slice(0, 300));
+      const r = await api("/api/scan", form, "POST", { timeoutMs: 90000 });
       const parsed = normalizePlan(expandPlan(r.result || {}));
       timers.current.push(setTimeout(() => {
         setProg(100); setRes(parsed); setPhase("done");
