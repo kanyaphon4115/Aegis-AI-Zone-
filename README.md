@@ -1,6 +1,6 @@
 # AEGIS ORBIT — คู่มือเอาขึ้นเว็บ .com
 
-โครงสร้าง: **Vercel** (โฮสต์หน้าเว็บ + backend ในไฟล์ `api/[...path].js`) + **Supabase** (ฐานข้อมูล + ที่เก็บสลิป)
+โครงสร้าง: **Render Static Site** (หน้าเว็บ Vite) + **Render Web Service** (Express API) + **Supabase** (ฐานข้อมูล + ที่เก็บสลิป)
 ทั้งสองอย่างมีแพ็กเกจฟรีเพียงพอสำหรับเริ่มขาย ค่าใช้จ่ายจริงมีแค่ **โดเมน** (~400-600 บาท/ปี) และ **ค่า AI ตามการใช้งาน**
 
 ใช้เวลาประมาณ 30-60 นาที ทำตามลำดับนี้
@@ -83,25 +83,29 @@ git remote add origin https://github.com/<ชื่อคุณ>/aegis-orbit.git
 git push -u origin main
 ```
 
-## 4. Vercel — ขึ้นเว็บ
+## 4. Render — ขึ้นเว็บ
 
-1. ไป https://vercel.com → **Sign up with GitHub** → **Add New → Project** → เลือก repo `aegis-orbit` → **Import**
-2. **Framework Preset** เลือก **Vite** (ปกติเลือกให้เอง)
-3. เปิดหัวข้อ **Environment Variables** ใส่ทีละตัว (ดูตัวอย่างในไฟล์ `.env.example`):
+สร้างสองบริการจาก repository เดียวกัน โดยตั้ง **Root Directory** เป็นโฟลเดอร์นี้ทั้งคู่
+
+1. สร้าง **Web Service** สำหรับ API: Build Command `npm install`, Start Command `npm start` และตั้ง Environment Variables ฝั่งนี้เท่านั้น:
 
 | Name | Value |
 |---|---|
-| `SUPABASE_URL` | จากข้อ 1 |
-| `SUPABASE_SERVICE_KEY` | จากข้อ 1 |
-| `ANTHROPIC_API_KEY` | จากข้อ 2 |
-| `JWT_SECRET` | ตัวอักษรสุ่มยาว 40+ ตัว (สร้างที่ https://generate-secret.vercel.app/40) |
-| `ADMIN_PHONE` | `0820431635` |
-| `ADMIN_PASSWORD` | รหัสเข้าหลังบ้าน ค่าที่ใช้อยู่คือ `254777` — อ่านหัวข้อ "เข้าหลังบ้าน" ก่อนตัดสินใจ |
-| `INVITE_CODES` | `AEGIS2026,ORBITVIP` (แก้ได้ ไม่ใส่ก็ได้) |
-| `SMS_PROVIDER` | `console` ตอนทดสอบ → เปลี่ยนเป็น `thaibulksms` ตอนเปิดขายจริง (ดูข้อ 2.5) |
-| `THAIBULKSMS_KEY` / `THAIBULKSMS_SECRET` / `SMS_SENDER` | ใส่เมื่อใช้ `thaibulksms` |
+| `SUPABASE_URL` | Project URL จาก Supabase |
+| `SUPABASE_SERVICE_KEY` | service_role key จาก Supabase — เป็นความลับ |
+| `ANTHROPIC_API_KEY` | Anthropic API key — เป็นความลับ |
+| `JWT_SECRET` | ค่าสุ่มยาวอย่างน้อย 40 ตัว — เป็นความลับ |
+| `ADMIN_PHONE` / `ADMIN_PASSWORD` | เบอร์และรหัสผู้ดูแลที่กำหนดเอง — เป็นความลับ |
+| `FRONTEND_URL` | URL ของ Render Static Site เช่น `https://aegis-orbit.onrender.com` |
+| `INVITE_CODES` | ไม่บังคับ: รหัสคั่นด้วย comma |
+| `SMS_PROVIDER` | `console` ระหว่างทดสอบ หรือ `thaibulksms` / `twilio` สำหรับใช้งานจริง |
+| `THAIBULKSMS_KEY`, `THAIBULKSMS_SECRET`, `SMS_SENDER` | ใส่เมื่อใช้ ThaiBulkSMS |
+| `TWILIO_SID`, `TWILIO_TOKEN`, `TWILIO_FROM` | ใส่เมื่อใช้ Twilio |
+| `ANTHROPIC_MODEL`, `COOKIE_SAME_SITE` | ไม่บังคับ; `COOKIE_SAME_SITE=None` เฉพาะกรณี custom domains คนละ site |
 
-4. กด **Deploy** รอ 1-2 นาที → ได้ลิงก์ `https://aegis-orbit-xxxx.vercel.app` เปิดทดสอบได้เลย
+2. สร้าง **Static Site** สำหรับ frontend: Build Command `npm install && npm run build`, Publish Directory `dist` และกำหนด `VITE_API_URL` เป็น URL ของ Web Service แบบไม่มี `/` ท้ายสุด เช่น `https://aegis-orbit-api.onrender.com` จากนั้น redeploy Static Site เพื่อให้ Vite ฝังค่านี้ตอน build
+
+`FRONTEND_URL` ต้องตรงกับ URL ของ Static Site ทุกตัวอักษร (หากมีหลาย origin ใช้ `CORS_ORIGINS` แบบคั่น comma แทนได้) API อนุญาตเฉพาะ origin ใน allow-list พร้อม credentials จึงไม่มี `Access-Control-Allow-Origin: *`.
 
 ทดสอบให้ครบก่อนต่อโดเมน: เปิดบัญชีใหม่ (ต้องได้รหัส OTP) → สแกน 3 ครั้ง → ครั้งที่ 4 ต้องเด้งแพ็กเกจ → ส่งสลิป → ออกจากระบบ → เข้าด้วยเบอร์แอดมิน → หลังบ้านต้องเห็นสลิป → อนุมัติ → กลับไปบัญชีลูกค้ากด "ตรวจสถานะ" → ต้องเป็น Pro
 
@@ -117,9 +121,9 @@ git push -u origin main
 เปิดดูรูปสลิปเต็ม · **กดอนุมัติแล้วแพ็กเกจของลูกค้าเปิดทันที** (ถ้าลูกค้าเปิดแอปค้างไว้ ระบบเช็คให้เองทุก 15 วินาที ไม่ต้องกดอะไร) ·
 ปฏิเสธสลิป · เปิดแพ็กเกจให้ด้วยมือ
 
-> **เรื่องรหัส 254777** — เป็นตัวเลข 6 หลัก ถ้ามีคนรู้ว่าเว็บนี้ใช้ระบบอะไร เดาได้ในเวลาไม่นาน
+> ใช้ `ADMIN_PASSWORD` ที่ยาวและคาดเดายาก ไม่ควรใช้รหัสตัวเลขสั้น
 > ระบบจึงล็อก 15 นาทีเมื่อใส่ผิดครบ 5 ครั้ง ซึ่งช่วยได้ระดับหนึ่งแต่ไม่ใช่ทั้งหมด
-> เมื่อเริ่มมีเงินหมุนจริง แนะนำเปลี่ยน `ADMIN_PASSWORD` ใน Vercel เป็นอะไรที่ยาวกว่านี้ เช่น `Tw-2026-Aegis!k9` — เปลี่ยนได้ทุกเมื่อโดยไม่ต้องแก้โค้ด
+> สามารถเปลี่ยน `ADMIN_PASSWORD` ใน Render ได้ทุกเมื่อโดยไม่ต้องแก้โค้ด
 
 ## 5. โดเมน .com
 

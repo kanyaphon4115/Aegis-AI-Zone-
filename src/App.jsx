@@ -13,8 +13,11 @@ const QR_PATH = "M2 2.5h7m2 0h1m6 0h1m1 0h1m1 0h1m1 0h2m2 0h7m-33 1h1m5 0h1m1 0h
 const PRO_PLANS = ["month", "five", "year"];
 
 /* ---------- API client (cookie session) ---------- */
+// VITE_API_URL is the public Render Web Service URL, without a trailing slash.
+// Leave it empty only when the frontend and API are served from the same origin.
+const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 async function api(path, body, method) {
-  const r = await fetch(path, { method: method || (body ? "POST" : "GET"), credentials: "include",
+  const r = await fetch(`${API_URL}${path}`, { method: method || (body ? "POST" : "GET"), credentials: "include",
     headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) { const e = new Error(j.error || "ผิดพลาด ลองใหม่อีกครั้ง"); e.status = r.status; throw e; }
