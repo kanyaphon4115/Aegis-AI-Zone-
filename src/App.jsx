@@ -28,7 +28,12 @@ async function api(path, body, method, { timeoutMs = 60000 } = {}) {
       headers: isFormData ? undefined : { "Content-Type": "application/json" },
       body: !body ? undefined : isFormData ? body : JSON.stringify(body), signal: controller?.signal });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) { const e = new Error(j.error || "ผิดพลาด ลองใหม่อีกครั้ง"); e.status = r.status; throw e; }
+    if (!r.ok) {
+      // Keep error diagnostics useful without ever logging request payloads
+      // (which may contain the customer's chart image or credentials).
+      console.error("[api] response error", { path, status: r.status, body: j });
+      const e = new Error(j.error || "ผิดพลาด ลองใหม่อีกครั้ง"); e.status = r.status; e.responseBody = j; throw e;
+    }
     return j;
   } catch (error) {
     if (error?.name === "AbortError") { const e = new Error("ส่งภาพใช้เวลานานเกินไป กรุณาลองใหม่ด้วยภาพที่เล็กลง"); e.code = "timeout"; throw e; }
@@ -1622,6 +1627,7 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
       form.append("image", img.blob, "chart.jpg");
       form.append("note", note.slice(0, 300));
       const r = await api("/api/scan", form, "POST", { timeoutMs: 90000 });
+      console.info("[scan] response", { status: 200, result: r.result, unlimited: r.unlimited });
       const parsed = normalizePlan(expandPlan(r.result || {}));
       timers.current.push(setTimeout(() => {
         setProg(100); setRes(parsed); setPhase("done");
@@ -1630,6 +1636,7 @@ function ScanTab({ plan, left, unlimited, onResult, onQuota, say, onSaved, onUpg
       }, Math.max(0, 700 * SCAN_STEPS.length - 1000)));
     } catch (e) {
       timers.current.forEach(clearTimeout);
+      console.error("[scan] request failed", { status: e?.status, message: e?.message, body: e?.responseBody });
       if (e.status === 402) { setPhase("idle"); setProg(0); onQuota(); return; }
       setScanError(e.message || "การเชื่อมต่อขาดตอนระหว่างส่งภาพ");
       setPhase("error"); setProg(0);
