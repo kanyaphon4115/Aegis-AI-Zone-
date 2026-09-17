@@ -13,9 +13,11 @@ const QR_PATH = "M2 2.5h7m2 0h1m6 0h1m1 0h1m1 0h1m1 0h2m2 0h7m-33 1h1m5 0h1m1 0h
 const PRO_PLANS = ["month", "five", "year"];
 
 /* ---------- API client (cookie session) ---------- */
-// VITE_API_URL is the public Render Web Service URL, without a trailing slash.
-// Leave it empty only when the frontend and API are served from the same origin.
-const API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
+// Vite replaces VITE_API_URL at build time. Production must never fall back
+// to /api on the Static Site, because that host has no API routes.
+const RENDER_API_URL = "https://aegis-ai-zone.onrender.com";
+const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.PROD ? RENDER_API_URL : "")).replace(/\/$/, "");
+if (import.meta.env.PROD && !import.meta.env.VITE_API_URL) console.warn("VITE_API_URL is not configured; using the Render API default.");
 async function api(path, body, method) {
   const r = await fetch(`${API_URL}${path}`, { method: method || (body ? "POST" : "GET"), credentials: "include",
     headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
@@ -433,6 +435,7 @@ export default function AegisOrbit() {
     if (!user || isAdmin) return;
     try {
       const r = await api("/api/auth/me");
+      if (!r?.user?.phone) throw new Error("invalid auth response");
       setUser(r.user); setPendingPay(r.pending || null);
       return { rec: r.user, last: r.last || null };
     } catch (e) { if (e.status === 401) logout(); }
@@ -442,9 +445,18 @@ export default function AegisOrbit() {
 
   /* กู้เซสชันจากคุกกี้ตอนเปิดเว็บ */
   const restoreSession = useCallback(async () => {
-    try { const r = await api("/api/auth/me"); setUser(r.user); setRole(r.role); setPendingPay(r.pending || null); setScreen("app"); }
-    catch { setScreen("auth"); }
+    try {
+      const r = await api("/api/auth/me");
+      if (!r?.user?.phone || !r?.role) throw new Error("invalid auth response");
+      setUser(r.user); setRole(r.role); setPendingPay(r.pending || null); setScreen("app");
+    } catch { setUser(null); setRole("user"); setScreen("auth"); }
   }, []);
+
+  // A malformed or interrupted auth response must return to login instead of
+  // rendering account/payment components with an undefined user object.
+  useEffect(() => {
+    if ((screen === "app" || screen === "pay") && !user?.phone) setScreen("auth");
+  }, [screen, user]);
 
   /* ระหว่างมีสลิปรอตรวจ ให้เช็คสถานะเองทุก 15 วินาที พออนุมัติปุ๊บแพ็กเกจเปิดทันทีโดยลูกค้าไม่ต้องกดอะไร */
   useEffect(() => {
@@ -452,6 +464,7 @@ export default function AegisOrbit() {
     const iv = setInterval(async () => {
       try {
         const r = await api("/api/auth/me");
+        if (!r?.user?.phone) throw new Error("invalid auth response");
         setUser(r.user); setPendingPay(r.pending || null);
         if (!r.pending && r.user?.plan) say("ยืนยันสลิปแล้ว แพ็กเกจเปิดใช้งานทันที");
         else if (!r.pending && r.last?.status === "rejected") say("สลิปถูกปฏิเสธ ติดต่อทีมงาน");
@@ -474,9 +487,12 @@ export default function AegisOrbit() {
         <div className="sky"><div className="layer l1" /><div className="layer l2" /></div>
 
         {screen === "boot" && <Boot onDone={restoreSession} />}
-        {screen === "auth" && <Auth say={say} gate={gate} onDone={(rec, r) => { setUser(rec); setRole(r); setScreen("app"); setTab("scan"); }} />}
+        {screen === "auth" && <Auth say={say} gate={gate} onDone={(rec, r) => {
+          if (!rec?.phone) return say("ข้อมูลบัญชีไม่สมบูรณ์ กรุณาลองเข้าสู่ระบบใหม่");
+          setUser(rec); setRole(r); setScreen("app"); setTab("scan");
+        }} />}
 
-        {screen === "app" && (
+        {screen === "app" && user?.phone && (
           <>
             <Header user={user} plan={plan} left={left} unlimited={unlimited} isAdmin={isAdmin} onPro={() => setTab(isAdmin ? "admin" : "plans")} />
             <div className="body">
@@ -499,7 +515,7 @@ export default function AegisOrbit() {
           </>
         )}
 
-        {screen === "pay" && (
+        {screen === "pay" && user?.phone && (
           <PayScreen plan={PLANS.find((p) => p.id === selPlan)} user={user} say={say} onBack={() => { setScreen("app"); setTab("me"); }}
             onSubmitted={(rec) => setPendingPay(rec)} />
         )}
@@ -518,7 +534,10 @@ export default function AegisOrbit() {
 
         {gate.open && !isAdmin && (
           <AdminGate say={say} onClose={() => gate.setOpen(false)}
-            onDone={(rec, r) => { gate.setOpen(false); setUser(rec); setRole(r); setScreen("app"); setTab("admin"); }} />
+            onDone={(rec, r) => {
+              if (!rec?.phone) return say("ข้อมูลบัญชีผู้ดูแลไม่สมบูรณ์");
+              gate.setOpen(false); setUser(rec); setRole(r); setScreen("app"); setTab("admin");
+            }} />
         )}
 
         {toast && <div className="toast">{toast}</div>}
@@ -2010,7 +2029,7 @@ function PayScreen({ plan, user, onBack, onSubmitted, say }) {
 
         <button className="btn" disabled={!slip || busy} onClick={submit}>{busy ? "กำลังส่ง" : "ส่งสลิปให้ตรวจสอบ"}</button>
         <p className="dim" style={{ marginTop: 14, textAlign: "center", fontSize: 11 }}>
-          บัญชี {user.phone} · โอนแล้วแพ็กเกจยังไม่เข้าภายใน 30 นาที ติดต่อทีมงานได้ทันที
+          บัญชี {user?.phone || "-"} · โอนแล้วแพ็กเกจยังไม่เข้าภายใน 30 นาที ติดต่อทีมงานได้ทันที
         </p>
       </div>
     </div>
@@ -2221,7 +2240,7 @@ function AccountTab({ user, plan, left, unlimited, isAdmin, isPro, scans, pendin
             <Ico.user style={{ width: 20, height: 20, color: "var(--brass)" }} />
           </div>
           <div>
-            <div style={{ fontSize: 15 }}>{user.phone}</div>
+            <div style={{ fontSize: 15 }}>{user?.phone || "-"}</div>
             <div className="dim" style={{ marginTop: 3 }}>{isAdmin ? "ผู้ดูแลระบบ · สิทธิ์ทั้งหมด" : plan ? `${planTitle(plan)} ถึง ${exp}` : "บัญชีทดลอง"}</div>
           </div>
           <span className="badge br" style={{ marginLeft: "auto" }}>{isAdmin ? "ADMIN" : isPro ? "PRO" : plan ? "STARTER" : "ทดลอง"}</span>
@@ -2242,10 +2261,10 @@ function AccountTab({ user, plan, left, unlimited, isAdmin, isPro, scans, pendin
 
       <div className="card" style={{ marginBottom: 12 }}>
         <div className="row"><span className="k">วิเคราะห์ในเซสชันนี้</span><span className="v num" style={{ fontSize: 17 }}>{scans} ครั้ง</span></div>
-        <div className="row"><span className="k">วิเคราะห์สะสม</span><span className="v num" style={{ fontSize: 17 }}>{isAdmin ? "—" : (user.scans || 0) + " ครั้ง"}</span></div>
+        <div className="row"><span className="k">วิเคราะห์สะสม</span><span className="v num" style={{ fontSize: 17 }}>{isAdmin ? "—" : (user?.scans || 0) + " ครั้ง"}</span></div>
         <div className="row"><span className="k">สิทธิ์คงเหลือ</span><span className="v">{unlimited ? "ไม่จำกัด" : `${left} ครั้ง`}</span></div>
         <div className="row"><span className="k">บทวิเคราะห์ข่าว</span><span className="v" style={{ color: isPro ? "var(--up)" : "var(--muted)" }}>{isPro ? "เปิดใช้งาน" : "รายเดือนขึ้นไป"}</span></div>
-        {!isAdmin && <div className="row"><span className="k">เปิดบัญชีเมื่อ</span><span className="v">{user.createdAt ? new Date(user.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) : "-"}</span></div>}
+        {!isAdmin && <div className="row"><span className="k">เปิดบัญชีเมื่อ</span><span className="v">{user?.createdAt ? new Date(user.createdAt).toLocaleDateString("th-TH", { day: "numeric", month: "short", year: "numeric" }) : "-"}</span></div>}
       </div>
 
       {!isAdmin && (
