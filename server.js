@@ -20,18 +20,21 @@ const allowedOrigins = [process.env.FRONTEND_URL, process.env.CORS_ORIGINS, defa
   .split(",")
   .map((origin) => origin.trim().replace(/\/$/, ""))
   .filter(Boolean);
+const isAllowedOrigin = (origin) => !!origin && allowedOrigins.includes(origin.replace(/\/$/, ""));
 
+// CORS must execute before both the JSON parser and the preserved Vercel API
+// handler. Cookies require an explicit origin; never use a wildcard here.
 app.use((req, res, next) => {
-  const origin = req.headers.origin?.replace(/\/$/, "");
-  if (origin && allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  const origin = req.headers.origin;
+  if (isAllowedOrigin(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin.replace(/\/$/, ""));
     res.setHeader("Access-Control-Allow-Credentials", "true");
     res.setHeader("Vary", "Origin");
   }
-  if (req.method === "OPTIONS" && req.path.startsWith("/api/")) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  if (req.method === "OPTIONS") {
+    if (!origin || isAllowedOrigin(origin)) {
+      res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
       return res.status(204).end();
     }
     return res.status(403).json({ error: "origin not allowed" });
